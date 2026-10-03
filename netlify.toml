@@ -1,0 +1,32 @@
+[build]
+command = "python3 build.py"
+publish = "build"
+
+[[redirects]]
+from = "/blog/:slug"
+to = "/blog/:slug.html"
+status = 200
+
+[[redirects]]
+from = "/blog/*"
+to = "/blog/:splat.html"
+status = 200
+
+[[headers]]
+for = "/sitemap.xml"
+[headers.values]
+Content-Type = "application/xml"
+
+[[headers]]
+for = "/robots.txt"
+[headers.values]
+Content-Type = "text/plain"
+
+[context.production]
+environment = { DOMAIN = "repairestimator.co" }
+
+[context.deploy-preview]
+environment = { DOMAIN = "deploy-preview.repairestimator.co" }
+
+[context.branch-deploy]
+environment = { DOMAIN = "branch-deploy.repairestimator.co" }
