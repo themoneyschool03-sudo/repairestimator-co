@@ -331,7 +331,7 @@ class ArticlePublisher:
 
             <!-- CTA Box -->
             <div class="cta-box">
-                <p>{article.get('call_to_action', 'Want to know if your repair quote is fair? Use RepairEstimator.co to compare prices and get a second opinion on your mechanic\'s quote.')}</p>
+                <p>{article.get('call_to_action', "Want to know if your repair quote is fair? Use RepairEstimator.co to compare prices and get a second opinion on your mechanic's quote.")}</p>
             </div>
 
             <!-- Ad space - bottom of article -->
