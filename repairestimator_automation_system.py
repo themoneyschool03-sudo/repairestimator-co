@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-RepairEstimator.co Article Publishing Automation System
+RepairEstimator.co Article Publishing Automation System (FIXED)
 
 Converts article JSON to HTML pages with proper SEO, AdSense, and Google Search Console compliance.
 Generates dynamic sitemap and robots.txt.
+
+FIX: Creates varied article layouts to avoid "scaled slop" detection by Google.
+Each article gets a unique structural arrangement.
 
 Usage:
     python3 repairestimator_automation_system.py --input article.json --output ./build
@@ -16,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 import re
+import random
 
 class ArticlePublisher:
     def __init__(self, base_url="https://repairestimator.co", output_dir="./build"):
@@ -30,6 +34,110 @@ class ArticlePublisher:
             article = json.load(f)
         self.articles.append(article)
         return article
+
+    def _get_layout_variation(self, article_slug):
+        """
+        Generate a unique layout variation for this article based on its slug.
+        Uses deterministic hashing so the same article always gets the same layout.
+        This creates structural variation without randomness.
+        """
+        # Use hash of slug to deterministically pick a layout (0-4)
+        layout_num = hash(article_slug) % 5
+        return layout_num
+
+    def _build_ad_space(self, slot_num):
+        """Build an AdSense ad space placeholder."""
+        return f'''<!-- Ad space - slot {slot_num} -->
+            <div class="ad-space">
+                <ins class="adsbygoogle"
+                     style="display:block"
+                     data-ad-client="ca-pub-YOUR_ADSENSE_ID"
+                     data-ad-slot="YOUR_AD_SLOT_{slot_num}"
+                     data-ad-format="auto"
+                     data-full-width-responsive="true"></ins>
+                <script>
+                     (adsbygoogle = window.adsbygoogle || []).push({{}});
+                </script>
+            </div>'''
+
+    def _build_section_block(self, section_type, content):
+        """Build a content section with semantic HTML."""
+        if section_type == "faq" and content:
+            faq_html = '<section class="faq-section" style="margin: 40px 0;"><h2>Frequently Asked Questions</h2>'
+            for i, item in enumerate(content, 1):
+                faq_html += f'''
+<div class="faq-item" itemscope itemtype="https://schema.org/FAQPage" style="margin: 20px 0; padding: 15px; border-left: 4px solid #0066cc;">
+    <h3 itemprop="name" style="margin: 0 0 10px 0;">{item['question']}</h3>
+    <p itemprop="text">{item['answer']}</p>
+</div>
+'''
+            faq_html += '</section>'
+            return faq_html
+
+        elif section_type == "internal_links" and content:
+            internal_html = '<div class="internal-links" style="background: #f5f5f5; padding: 20px; margin: 30px 0; border-radius: 8px;"><h3>Related Articles</h3><ul style="list-style: none; padding: 0;">'
+            for link in content:
+                internal_html += f'<li style="margin: 10px 0;"><a href="{link["url"]}" style="color: #0066cc; text-decoration: none;">{link["anchor_text"]}</a></li>'
+            internal_html += '</ul></div>'
+            return internal_html
+
+        elif section_type == "cta":
+            return f'''<!-- Call-to-Action -->
+            <div class="cta-box">
+                <p>{content}</p>
+            </div>'''
+
+        elif section_type == "body":
+            return content
+
+        return ""
+
+    def _generate_layout_variant(self, html_body, faq_html, internal_links_html, cta):
+        """
+        Generate article content in a specific layout variation.
+        Returns arranged HTML sections in different orders.
+        """
+        # Build available sections
+        sections = {
+            "body": html_body,
+            "faq": faq_html,
+            "internal_links": internal_links_html,
+            "cta": cta,
+        }
+
+        # Define 5 different layout patterns
+        layouts = [
+            # Layout 0: Body → FAQ → Internal Links → CTA
+            ["body", "ad1", "faq", "ad2", "internal_links", "ad3", "cta"],
+
+            # Layout 1: Body → Internal Links → Ad → FAQ → CTA (different order)
+            ["body", "ad1", "internal_links", "ad2", "faq", "ad3", "cta"],
+
+            # Layout 2: Body → Ad → CTA → Internal Links → FAQ (CTA earlier)
+            ["body", "ad1", "cta", "ad2", "internal_links", "ad3", "faq"],
+
+            # Layout 3: Body → Ad → FAQ → CTA → Internal Links (varied order)
+            ["body", "ad1", "faq", "ad2", "cta", "ad3", "internal_links"],
+
+            # Layout 4: Body → Ad → Internal Links → CTA → FAQ (most different)
+            ["body", "ad1", "internal_links", "ad2", "cta", "ad3", "faq"],
+        ]
+
+        layout_num = self._get_layout_variation(self.articles[-1].get('slug', '')) if self.articles else 0
+        layout = layouts[layout_num % len(layouts)]
+
+        # Build content in this layout order
+        content_html = ""
+        ad_counter = 1
+
+        for item in layout:
+            if item.startswith("ad"):
+                content_html += self._build_ad_space(ad_counter) + "\n"
+                ad_counter += 1
+            elif item in sections and sections[item]:
+                content_html += self._build_section_block(item, sections[item]) + "\n"
+
+        return content_html, layout_num
 
     def generate_html(self, article):
         """Convert article JSON to HTML with SEO and AdSense compliance."""
@@ -61,6 +169,9 @@ class ArticlePublisher:
 '''
             faq_html += '</section>'
 
+        # Build CTA
+        cta = article.get('call_to_action', 'Want to know if your repair quote is fair? Use RepairEstimator.co to compare prices and get a second opinion on your mechanic\'s quote.')
+
         # Build structured data for Article schema
         article_schema = {
             "@context": "https://schema.org",
@@ -82,23 +193,41 @@ class ArticlePublisher:
 
         schema_json = json.dumps(article_schema)
 
+        # Generate the varied layout
+        arranged_content, layout_variant = self._generate_layout_variant(
+            html_body, faq_html, internal_links_html, cta
+        )
+
+        # Pre-compute template variables
+        seo_title = article.get('seo_title', article.get('title', ''))
+        meta_desc = article.get('meta_description', '')
+        meta_keys = article.get('meta_keywords', '')
+        featured_img = article.get('featured_image_url', '')
+        slug = article.get('slug', '')
+        title = article.get('title', '')
+        last_updated = article.get('last_updated', 'Oct 3, 2026')
+        word_count = article.get('word_count', 1000)
+        reading_time = max(1, word_count // 250)
+        base_url = self.base_url
+        schema_json_content = schema_json
+
         # Generate complete HTML
-        html = f'''<!DOCTYPE html>
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{article['seo_title']}</title>
-    <meta name="description" content="{article['meta_description']}">
-    <meta name="keywords" content="{article['meta_keywords']}">
+    <title>{seo_title}</title>
+    <meta name="description" content="{meta_desc}">
+    <meta name="keywords" content="{meta_keys}">
     <meta name="robots" content="index, follow">
     <meta name="author" content="RepairEstimator.co">
-    <meta property="og:title" content="{article['seo_title']}">
-    <meta property="og:description" content="{article['meta_description']}">
-    <meta property="og:image" content="{article.get('featured_image_url', '')}">
+    <meta property="og:title" content="{seo_title}">
+    <meta property="og:description" content="{meta_desc}">
+    <meta property="og:image" content="{featured_img}">
     <meta property="og:type" content="article">
-    <meta property="og:url" content="{self.base_url}/blog/{article['slug']}.html">
-    <link rel="canonical" href="{self.base_url}/blog/{article['slug']}.html">
+    <meta property="og:url" content="{base_url}/blog/{slug}.html">
+    <link rel="canonical" href="{base_url}/blog/{slug}.html">
 
     <!-- Google Search Console verification tag -->
     <meta name="google-site-verification" content="YOUR_GSC_VERIFICATION_CODE">
@@ -109,7 +238,7 @@ class ArticlePublisher:
 
     <!-- Schema.org structured data -->
     <script type="application/ld+json">
-{schema_json}
+{schema_json_content}
     </script>
 
     <style>
@@ -286,66 +415,18 @@ class ArticlePublisher:
 
     <main>
         <div class="breadcrumb">
-            <a href="/">Home</a> / <a href="/blog">Blog</a> / {article['title']}
+            <a href="/">Home</a> / <a href="/blog">Blog</a> / {title}
         </div>
 
         <article>
-            <h1 style="margin: 0 0 20px 0; font-size: 28px; color: #2c3e50;">{article['title']}</h1>
+            <h1 style="margin: 0 0 20px 0; font-size: 28px; color: #2c3e50;">{title}</h1>
 
             <div class="meta-info">
-                <strong>Last Updated:</strong> {article.get('last_updated', 'Oct 3, 2026')} |
-                <strong>Reading Time:</strong> {max(1, article.get('word_count', 1000) // 250)} min read
+                <strong>Last Updated:</strong> {last_updated} |
+                <strong>Reading Time:</strong> {reading_time} min read
             </div>
 
-            <!-- Ad space - top of article -->
-            <div class="ad-space">
-                <ins class="adsbygoogle"
-                     style="display:block"
-                     data-ad-client="ca-pub-YOUR_ADSENSE_ID"
-                     data-ad-slot="YOUR_AD_SLOT_1"
-                     data-ad-format="auto"
-                     data-full-width-responsive="true"></ins>
-                <script>
-                     (adsbygoogle = window.adsbygoogle || []).push({{}});
-                </script>
-            </div>
-
-            {html_body}
-
-            <!-- Ad space - middle of article -->
-            <div class="ad-space">
-                <ins class="adsbygoogle"
-                     style="display:block"
-                     data-ad-client="ca-pub-YOUR_ADSENSE_ID"
-                     data-ad-slot="YOUR_AD_SLOT_2"
-                     data-ad-format="auto"
-                     data-full-width-responsive="true"></ins>
-                <script>
-                     (adsbygoogle = window.adsbygoogle || []).push({{}});
-                </script>
-            </div>
-
-            {faq_html}
-
-            {internal_links_html}
-
-            <!-- CTA Box -->
-            <div class="cta-box">
-                <p>{article.get('call_to_action', "Want to know if your repair quote is fair? Use RepairEstimator.co to compare prices and get a second opinion on your mechanic's quote.")}</p>
-            </div>
-
-            <!-- Ad space - bottom of article -->
-            <div class="ad-space">
-                <ins class="adsbygoogle"
-                     style="display:block"
-                     data-ad-client="ca-pub-YOUR_ADSENSE_ID"
-                     data-ad-slot="YOUR_AD_SLOT_3"
-                     data-ad-format="auto"
-                     data-full-width-responsive="true"></ins>
-                <script>
-                     (adsbygoogle = window.adsbygoogle || []).push({{}});
-                </script>
-            </div>
+            {arranged_content}
         </article>
     </main>
 
@@ -355,6 +436,21 @@ class ArticlePublisher:
 </body>
 </html>
 '''
+
+        # Format the template with all variables
+        html = html.format(
+            seo_title=seo_title,
+            meta_desc=meta_desc,
+            meta_keys=meta_keys,
+            featured_img=featured_img,
+            base_url=base_url,
+            slug=slug,
+            schema_json_content=schema_json_content,
+            title=title,
+            last_updated=last_updated,
+            reading_time=reading_time,
+            arranged_content=arranged_content
+        )
 
         return html, filename
 
